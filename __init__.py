@@ -403,13 +403,20 @@ if core_ui_enabled():
                 self.table.setStyleSheet("QTableView::item { padding-left: 4px; padding-right: 10px; }")
                 self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
                 self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                self.table.horizontalHeader().hide()
                 self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
                 self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
                 self.table.horizontalHeader().setStretchLastSection(False)
+                self.table.setColumnHidden(0, True)
                 self.table.itemDoubleClicked.connect(self.navigate_to_item)
                 self.table.setItemDelegateForColumn(1, GadgetTokenDelegate(self.table))
                 self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 self.table.customContextMenuRequested.connect(lambda pos: self.open_table_context_menu(self.table, pos))
+
+                self.gadget_header = QLabel("Gadget", self.table)
+                self.gadget_header.setFont(self.table.horizontalHeader().font())
+                self.gadget_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.gadget_header.setStyleSheet("QLabel { font-weight: bold; padding-left: 6px; padding-right: 6px; border: 1px solid palette(mid); background: palette(button); }")
 
                 self.frozen_table = RopAddressTableView(self.table)
                 self.frozen_table.copy_callback = self.copy_selected_addresses
@@ -766,14 +773,23 @@ if core_ui_enabled():
                 if not hasattr(self, "frozen_table"):
                     return
 
+                header_height = self.frozen_table.horizontalHeader().height()
                 frozen_width = self.frozen_table.columnWidth(0) + self.frozen_table.frameWidth() * 2
-                self.table.setViewportMargins(frozen_width, 0, 0, 0)
+                self.table.setViewportMargins(frozen_width, header_height, 0, 0)
                 self.frozen_table.setGeometry(
                     self.table.frameWidth(),
                     self.table.frameWidth(),
                     frozen_width,
-                    self.table.viewport().height() + self.table.horizontalHeader().height(),
+                    self.table.viewport().height() + header_height,
                 )
+                self.gadget_header.setGeometry(
+                    self.table.frameWidth() + frozen_width,
+                    self.table.frameWidth(),
+                    self.table.viewport().width(),
+                    header_height,
+                )
+                self.gadget_header.show()
+                self.gadget_header.raise_()
 
             def selected_table_rows(self) -> list[int]:
                 rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
