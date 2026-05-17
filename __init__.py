@@ -1,3 +1,4 @@
+import math
 import re
 
 from binaryninja import BinaryView, core_ui_enabled, log_error
@@ -42,8 +43,8 @@ if core_ui_enabled():
             getMonospaceFont,
             getTokenColor,
         )
-        from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
-        from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
+        from PySide6.QtCore import QObject, QPointF, QRectF, QSize, Qt, QTimer, Signal
+        from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPen, QPixmap
         from PySide6.QtWidgets import (
             QAbstractItemView,
             QCheckBox,
@@ -70,7 +71,33 @@ if core_ui_enabled():
         _settings_dialog = None
 
 
+        def make_settings_icon() -> QIcon:
+            image = QImage(24, 24, QImage.Format_ARGB32)
+            image.fill(0)
+
+            painter = QPainter()
+            painter.begin(image)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            color = QColor(235, 235, 235, 255)
+            painter.setPen(QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            center = QPointF(12, 12)
+            for index in range(8):
+                angle = (math.pi * 2 * index) / 8
+                inner = QPointF(center.x() + math.cos(angle) * 6, center.y() + math.sin(angle) * 6)
+                outer = QPointF(center.x() + math.cos(angle) * 9, center.y() + math.sin(angle) * 9)
+                painter.drawLine(inner, outer)
+
+            painter.setPen(QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawEllipse(QRectF(6.5, 6.5, 11, 11))
+            painter.drawEllipse(QRectF(10, 10, 4, 4))
+            painter.end()
+            return QIcon(QPixmap.fromImage(image))
+
+
         class BinjaRopSettingsDialog(QDialog):
+            settings_saved = Signal()
+
             def __init__(self, parent=None):
                 super().__init__(parent)
                 self.setWindowTitle(f"{PLUGIN_NAME} Settings")
@@ -150,13 +177,20 @@ if core_ui_enabled():
                     self.strip_address_zeros.isChecked(),
                     scope=SettingsScope.SettingsUserScope,
                 )
+                self.settings_saved.emit()
                 self.close()
 
 
-        def open_settings(context=None) -> None:
+        def open_settings(on_saved=None) -> None:
             global _settings_dialog
             if _settings_dialog is None:
                 _settings_dialog = BinjaRopSettingsDialog()
+            if on_saved is not None:
+                try:
+                    _settings_dialog.settings_saved.disconnect(on_saved)
+                except Exception:
+                    pass
+                _settings_dialog.settings_saved.connect(on_saved)
             _settings_dialog.load_settings()
             _settings_dialog.show()
             _settings_dialog.raise_()
@@ -284,13 +318,12 @@ if core_ui_enabled():
                 self.find_button = QPushButton("Find", self)
                 self.find_button.clicked.connect(self.start_search)
 
-                self.settings_button = QPushButton("Settings", self)
-                self.settings_button.clicked.connect(open_settings)
-
-                button_layout = QHBoxLayout()
-                button_layout.setContentsMargins(0, 0, 0, 0)
-                button_layout.addWidget(self.find_button, 1)
-                button_layout.addWidget(self.settings_button)
+                self.settings_button = QPushButton(self)
+                self.settings_button.setIcon(make_settings_icon())
+                self.settings_button.setIconSize(QSize(18, 18))
+                self.settings_button.setToolTip("Settings")
+                self.settings_button.setFixedWidth(30)
+                self.settings_button.clicked.connect(self.open_settings)
 
                 self.category_filter = QComboBox(self)
                 self.category_filter.setMinimumWidth(128)
@@ -303,19 +336,15 @@ if core_ui_enabled():
                 self.category_filter.addItem("Leave", "leave")
                 self.category_filter.currentIndexChanged.connect(lambda _: self.apply_filter())
 
-                self.short_addresses = QCheckBox("Short addrs", self)
-                self.short_addresses.setChecked(self.strip_address_zeros)
-                self.short_addresses.toggled.connect(self.set_strip_address_zeros)
-
                 self.filter = QLineEdit(self)
                 self.filter.setPlaceholderText("Filter gadgets")
                 self.filter.textChanged.connect(lambda _: self.apply_filter())
 
-                filter_layout = QHBoxLayout()
-                filter_layout.setContentsMargins(0, 0, 0, 0)
-                filter_layout.addWidget(self.category_filter)
-                filter_layout.addWidget(self.filter, 1)
-                filter_layout.addWidget(self.short_addresses)
+                controls_layout = QHBoxLayout()
+                controls_layout.setContentsMargins(0, 0, 0, 0)
+                controls_layout.addWidget(self.find_button)
+                controls_layout.addWidget(self.category_filter, 1)
+                controls_layout.addWidget(self.settings_button)
 
                 self.status = QLabel("Ready", self)
 
@@ -336,8 +365,8 @@ if core_ui_enabled():
 
                 layout = QVBoxLayout()
                 layout.setContentsMargins(6, 6, 6, 6)
-                layout.addLayout(button_layout)
-                layout.addLayout(filter_layout)
+                layout.addWidget(self.filter)
+                layout.addLayout(controls_layout)
                 layout.addWidget(self.table, 1)
                 layout.addWidget(self.status)
                 self.setLayout(layout)
@@ -346,6 +375,22 @@ if core_ui_enabled():
 
             def showEvent(self, event) -> None:
                 super().showEvent(event)
+                self.maybe_start_auto_find()
+
+            def open_settings(self) -> None:
+                open_settings(self.settings_changed)
+
+            def settings_changed(self) -> None:
+                self.strip_address_zeros = get_strip_address_zeros()
+                data = self.resolve_data()
+                self.update_find_button(data)
+                if self.rows:
+                    self.apply_filter()
+                elif data is None:
+                    self.status.setText("Open a BinaryView to search for ROP gadgets.")
+                else:
+                    filename = getattr(getattr(data, "file", None), "filename", "")
+                    self.status.setText(f"Ready: {filename}" if filename else "Ready")
                 self.maybe_start_auto_find()
 
             def set_view_frame(self, frame) -> None:
@@ -394,7 +439,7 @@ if core_ui_enabled():
 
             def refresh_context(self) -> None:
                 data = self.resolve_data()
-                self.find_button.setEnabled(data is not None and self.task is None)
+                self.update_find_button(data)
                 if self.result_data is not None and not self.same_data(data, self.result_data):
                     self.rows = []
                     self.result_data = None
@@ -425,10 +470,17 @@ if core_ui_enabled():
                 self.auto_find_views.append(data)
                 QTimer.singleShot(0, self.start_search)
 
+            def update_find_button(self, data=None) -> None:
+                if data is None:
+                    data = self.resolve_data()
+                auto_find = get_auto_find_on_open()
+                self.find_button.setVisible(not auto_find)
+                self.find_button.setEnabled(not auto_find and data is not None and self.task is None)
+
             def start_search(self) -> None:
                 data = self.resolve_data()
                 if data is None:
-                    self.find_button.setEnabled(False)
+                    self.update_find_button(data)
                     self.status.setText("Open a BinaryView to search for ROP gadgets.")
                     return
 
@@ -440,6 +492,7 @@ if core_ui_enabled():
                 self.populate_table([])
 
                 self.task = RopSearchTask(data)
+                self.update_find_button(data)
                 self.task.signals.finished.connect(self.search_finished)
                 self.task.signals.failed.connect(self.search_failed)
                 self.task.start()
@@ -459,24 +512,15 @@ if core_ui_enabled():
                 self.result_data = finished_data
                 self.rows = format_gadget_rows_for_display(self.result_data, gadgets) if self.result_data is not None else []
                 self.apply_filter()
-                self.find_button.setEnabled(True)
                 self.task = None
+                self.update_find_button(current_data)
 
             def search_failed(self, message: str) -> None:
                 self.search_data = None
                 self.result_data = None
-                self.find_button.setEnabled(True)
-                self.status.setText(f"Search failed: {message}")
                 self.task = None
-
-            def set_strip_address_zeros(self, enabled: bool) -> None:
-                self.strip_address_zeros = enabled
-                Settings().set_bool(
-                    SETTING_STRIP_ADDRESS_ZEROS,
-                    enabled,
-                    scope=SettingsScope.SettingsUserScope,
-                )
-                self.apply_filter()
+                self.update_find_button(self.resolve_data())
+                self.status.setText(f"Search failed: {message}")
 
             def apply_filter(self) -> None:
                 query = self.filter.text().strip().lower()

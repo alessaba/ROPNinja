@@ -37,7 +37,7 @@ Restart Binary Ninja, then open the `ROPNinja` sidebar button.
 
 1. Open a binary in Binary Ninja.
 2. Click the `ROPNinja` sidebar icon, or open it as a split pane.
-3. Press `Find` to discover gadgets for the current BinaryView, or enable auto-find in settings.
+3. Press `Find` to discover gadgets for the current BinaryView, or enable auto-find in settings to start searches as soon as the UI opens.
 4. Filter with the dropdown or search field.
 5. Select one or more rows and press `Ctrl+C` / `Cmd+C` to copy addresses.
 6. Double-click a gadget to navigate to its address.
@@ -52,6 +52,8 @@ ROPNinja registers clean `ropninja.*` settings:
 - `ropninja.includeLeave`: include gadgets containing `leave`.
 - `ropninja.stripAddressZeros`: display compact addresses in the sidebar.
 - `ropninja.autoFindOnOpen`: automatically search when the sidebar or split pane is shown.
+
+When auto-find is enabled, ROPNinja hides the manual `Find` button and gives the filter/category controls the extra room.
 
 ## Why Are Jumps And `leave` Disabled By Default?
 
