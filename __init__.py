@@ -57,6 +57,7 @@ if core_ui_enabled():
             QLineEdit,
             QPushButton,
             QApplication,
+            QMenu,
             QStyle,
             QStyledItemDelegate,
             QStyleOptionViewItem,
@@ -283,11 +284,15 @@ if core_ui_enabled():
             def __init__(self, *args):
                 super().__init__(*args)
                 self.resize_callback = None
+                self.copy_callback = None
 
             def keyPressEvent(self, event) -> None:
                 copy_modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
                 if event.key() == Qt.Key.Key_C and event.modifiers() & copy_modifiers:
-                    self.copy_selected_addresses()
+                    if self.copy_callback is not None:
+                        self.copy_callback()
+                    else:
+                        self.copy_selected_addresses()
                     return
                 super().keyPressEvent(event)
 
@@ -311,6 +316,20 @@ if core_ui_enabled():
 
                 if addresses:
                     QApplication.clipboard().setText("\n".join(addresses))
+
+
+        class RopAddressTableView(QTableView):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.copy_callback = None
+
+            def keyPressEvent(self, event) -> None:
+                copy_modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
+                if event.key() == Qt.Key.Key_C and event.modifiers() & copy_modifiers:
+                    if self.copy_callback is not None:
+                        self.copy_callback()
+                    return
+                super().keyPressEvent(event)
 
 
         class BinjaRopPanel(QWidget):
@@ -350,16 +369,24 @@ if core_ui_enabled():
                 self.filter.setPlaceholderText("Filter gadgets")
                 self.filter.textChanged.connect(lambda _: self.apply_filter())
 
+                self.regex_filter = QPushButton(".*", self)
+                self.regex_filter.setCheckable(True)
+                self.regex_filter.setToolTip("Regex filter")
+                self.regex_filter.setFixedWidth(34)
+                self.regex_filter.toggled.connect(lambda _: self.apply_filter())
+
                 controls_layout = QHBoxLayout()
                 controls_layout.setContentsMargins(0, 0, 0, 0)
                 controls_layout.addWidget(self.find_button)
                 controls_layout.addWidget(self.category_filter, 1)
+                controls_layout.addWidget(self.regex_filter)
                 controls_layout.addWidget(self.settings_button)
 
                 self.status = QLabel("Ready", self)
 
                 self.table = RopTableWidget(0, 2, self)
                 self.table.resize_callback = self.update_frozen_table_geometry
+                self.table.copy_callback = self.copy_selected_addresses
                 self.table.setFont(getMonospaceFont(self))
                 self.table.setHorizontalHeaderLabels(["Address", "Gadget"])
                 self.table.verticalHeader().hide()
@@ -377,12 +404,15 @@ if core_ui_enabled():
                 self.table.setColumnHidden(0, True)
                 self.table.itemDoubleClicked.connect(self.navigate_to_item)
                 self.table.setItemDelegateForColumn(1, GadgetTokenDelegate(self.table))
+                self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                self.table.customContextMenuRequested.connect(lambda pos: self.open_table_context_menu(self.table, pos))
 
-                self.frozen_table = QTableView(self.table)
+                self.frozen_table = RopAddressTableView(self.table)
+                self.frozen_table.copy_callback = self.copy_selected_addresses
                 self.frozen_table.setModel(self.table.model())
                 self.frozen_table.setSelectionModel(self.table.selectionModel())
                 self.frozen_table.setFont(self.table.font())
-                self.frozen_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                self.frozen_table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
                 self.frozen_table.setAlternatingRowColors(True)
                 self.frozen_table.setStyleSheet(self.table.styleSheet())
                 self.frozen_table.verticalHeader().hide()
@@ -394,6 +424,8 @@ if core_ui_enabled():
                 self.frozen_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
                 self.frozen_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
                 self.frozen_table.doubleClicked.connect(self.navigate_to_index)
+                self.frozen_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                self.frozen_table.customContextMenuRequested.connect(lambda pos: self.open_table_context_menu(self.frozen_table, pos))
                 self.table.verticalScrollBar().valueChanged.connect(self.frozen_table.verticalScrollBar().setValue)
                 self.frozen_table.verticalScrollBar().valueChanged.connect(self.table.verticalScrollBar().setValue)
                 self.table.viewport().stackUnder(self.frozen_table)
@@ -559,7 +591,7 @@ if core_ui_enabled():
                 self.status.setText(f"Search failed: {message}")
 
             def apply_filter(self) -> None:
-                query = self.filter.text().strip().lower()
+                query = self.filter.text().strip()
                 category = self.category_filter.currentData()
                 rows = [row for row in self.rows if self.matches_category(row, category)]
 
@@ -571,13 +603,30 @@ if core_ui_enabled():
                         self.status.setText(f"{len(rows)} of {len(self.rows)} gadgets")
                     return
 
-                filtered = [
-                    row
-                    for row in rows
-                    if query in f"0x{row.address:x}".lower() or query in row.text.lower()
-                ]
+                matcher = self.build_filter_matcher(query)
+                if matcher is None:
+                    self.populate_table([])
+                    return
+
+                filtered = [row for row in rows if matcher(row)]
                 self.populate_table(filtered)
                 self.status.setText(f"{len(filtered)} of {len(self.rows)} gadgets")
+
+            def build_filter_matcher(self, query: str):
+                if self.regex_filter.isChecked():
+                    try:
+                        pattern = re.compile(query, re.IGNORECASE)
+                    except re.error as exc:
+                        self.status.setText(f"Invalid regex: {exc}")
+                        return None
+
+                    return lambda row: pattern.search(self.searchable_row_text(row)) is not None
+
+                lower_query = query.lower()
+                return lambda row: lower_query in self.searchable_row_text(row).lower()
+
+            def searchable_row_text(self, row) -> str:
+                return f"{self.format_address(row.address)} 0x{row.address:x} {row.text}"
 
             @staticmethod
             def matches_category(row, category) -> bool:
@@ -636,6 +685,72 @@ if core_ui_enabled():
                     frozen_width,
                     self.table.viewport().height() + self.table.horizontalHeader().height(),
                 )
+
+            def selected_table_rows(self) -> list[int]:
+                rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+                if not rows:
+                    rows = sorted({index.row() for index in self.table.selectedIndexes()})
+                return rows
+
+            def address_text_for_row(self, row: int) -> str | None:
+                item = self.table.item(row, 0)
+                return item.text() if item is not None else None
+
+            def gadget_text_for_row(self, row: int) -> str | None:
+                item = self.table.item(row, 1)
+                return item.text() if item is not None else None
+
+            def copy_selected_addresses(self) -> None:
+                self.copy_addresses_for_rows(self.selected_table_rows())
+
+            def copy_addresses_for_rows(self, rows: list[int]) -> None:
+                addresses = [text for row in rows if (text := self.address_text_for_row(row))]
+                if addresses:
+                    QApplication.clipboard().setText("\n".join(addresses))
+
+            def copy_gadgets_for_rows(self, rows: list[int]) -> None:
+                gadgets = [text for row in rows if (text := self.gadget_text_for_row(row))]
+                if gadgets:
+                    QApplication.clipboard().setText("\n".join(gadgets))
+
+            def copy_address_and_gadget_for_rows(self, rows: list[int]) -> None:
+                lines = []
+                for row in rows:
+                    address = self.address_text_for_row(row)
+                    gadget = self.gadget_text_for_row(row)
+                    if address is not None and gadget is not None:
+                        lines.append(f"{address}  {gadget}")
+                if lines:
+                    QApplication.clipboard().setText("\n".join(lines))
+
+            def open_table_context_menu(self, view, position) -> None:
+                index = view.indexAt(position)
+                clicked_row = index.row() if index.isValid() else None
+                if clicked_row is not None and clicked_row not in self.selected_table_rows():
+                    self.table.selectRow(clicked_row)
+
+                selected_rows = self.selected_table_rows()
+                menu = QMenu(self)
+                copy_address = menu.addAction("Copy Address")
+                copy_selected = menu.addAction("Copy Selected Addresses")
+                copy_gadget = menu.addAction("Copy Gadget Text")
+                copy_line = menu.addAction("Copy Address + Gadget")
+
+                copy_address.setEnabled(clicked_row is not None)
+                has_selection = bool(selected_rows)
+                copy_selected.setEnabled(has_selection)
+                copy_gadget.setEnabled(has_selection)
+                copy_line.setEnabled(has_selection)
+
+                action = menu.exec(view.viewport().mapToGlobal(position))
+                if action == copy_address and clicked_row is not None:
+                    self.copy_addresses_for_rows([clicked_row])
+                elif action == copy_selected:
+                    self.copy_addresses_for_rows(selected_rows)
+                elif action == copy_gadget:
+                    self.copy_gadgets_for_rows(selected_rows)
+                elif action == copy_line:
+                    self.copy_address_and_gadget_for_rows(selected_rows)
 
             def format_address(self, addr: int) -> str:
                 if self.strip_address_zeros:

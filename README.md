@@ -10,9 +10,9 @@ It started as a transformative fork of [`binja_rop`](https://github.com/m4ul3r/b
 - Uses the currently open BinaryView, so it behaves like a real workspace tool.
 - Syntax-highlighted gadget rendering using Binary Ninja token colors.
 - Category dropdown for all gadgets, pops, moves, calls, stack pivots, branches, and `leave`.
-- Text filtering across gadget text and addresses.
+- Text and regex filtering across gadget text and addresses.
 - Horizontally scrollable gadget chains with the address column pinned in place.
-- Multi-row selection with `Ctrl+C` / `Cmd+C` address copying.
+- Multi-row selection with `Ctrl+C` / `Cmd+C` address copying plus right-click copy actions.
 - Optional short address display that strips leading zeroes.
 - Optional auto-find when the sidebar or split pane opens.
 - Configurable gadget backtracking, deduplication, jump gadgets, and `leave` gadgets.
@@ -39,8 +39,8 @@ Restart Binary Ninja, then open the `ROPNinja` sidebar button.
 1. Open a binary in Binary Ninja.
 2. Click the `ROPNinja` sidebar icon, or open it as a split pane.
 3. Press `Find` to discover gadgets for the current BinaryView, or enable auto-find in settings to start searches as soon as the UI opens.
-4. Filter with the dropdown or search field.
-5. Select one or more rows and press `Ctrl+C` / `Cmd+C` to copy addresses.
+4. Filter with the dropdown or search field; toggle `.*` for regex search.
+5. Select one or more rows and press `Ctrl+C` / `Cmd+C`, or right-click a row, to copy addresses.
 6. Double-click a gadget to navigate to its address.
 
 ## Settings
