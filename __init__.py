@@ -1,3 +1,4 @@
+import json
 import math
 import re
 
@@ -70,6 +71,9 @@ if core_ui_enabled():
         )
 
         TOKEN_FRAGMENTS_ROLE = 0x0101
+        GADGET_CACHE_LIMIT = 8
+        GADGET_CACHE = {}
+        STARRED_GADGETS = {}
         _settings_dialog = None
 
 
@@ -345,7 +349,7 @@ if core_ui_enabled():
                 self.strip_address_zeros = get_strip_address_zeros()
 
                 self.find_button = QPushButton("Find", self)
-                self.find_button.clicked.connect(self.start_search)
+                self.find_button.clicked.connect(lambda: self.start_search(force=True))
 
                 self.settings_button = QPushButton(self)
                 self.settings_button.setIcon(make_settings_icon())
@@ -361,6 +365,7 @@ if core_ui_enabled():
                 self.category_filter.addItem("Move gadgets", "mov")
                 self.category_filter.addItem("Call gadgets", "call")
                 self.category_filter.addItem("Stack pivots", "stack")
+                self.category_filter.addItem("Starred", "starred")
                 self.category_filter.addItem("Branches", "branch")
                 self.category_filter.addItem("Leave", "leave")
                 self.category_filter.currentIndexChanged.connect(lambda _: self.apply_filter())
@@ -521,7 +526,8 @@ if core_ui_enabled():
                 self.maybe_start_auto_find()
 
             def auto_find_seen_data(self, data) -> bool:
-                return any(self.same_data(data, seen_data) for seen_data in self.auto_find_views)
+                cache_key = self.search_cache_key(data)
+                return cache_key is not None and cache_key in self.auto_find_views
 
             def maybe_start_auto_find(self) -> None:
                 if not self.isVisible() or not get_auto_find_on_open():
@@ -535,8 +541,10 @@ if core_ui_enabled():
                 if self.auto_find_seen_data(data):
                     return
 
-                self.auto_find_views.append(data)
-                QTimer.singleShot(0, self.start_search)
+                cache_key = self.search_cache_key(data)
+                if cache_key is not None:
+                    self.auto_find_views.append(cache_key)
+                QTimer.singleShot(0, lambda: self.start_search(force=False))
 
             def update_find_button(self, data=None) -> None:
                 if data is None:
@@ -545,11 +553,14 @@ if core_ui_enabled():
                 self.find_button.setVisible(not auto_find)
                 self.find_button.setEnabled(not auto_find and data is not None and self.task is None)
 
-            def start_search(self) -> None:
+            def start_search(self, force: bool = False) -> None:
                 data = self.resolve_data()
                 if data is None:
                     self.update_find_button(data)
                     self.status.setText("Open a BinaryView to search for ROP gadgets.")
+                    return
+
+                if not force and self.load_cached_gadgets(data):
                     return
 
                 self.find_button.setEnabled(False)
@@ -578,6 +589,8 @@ if core_ui_enabled():
                     return
 
                 self.result_data = finished_data
+                if self.result_data is not None:
+                    self.cache_gadgets(self.result_data, gadgets)
                 self.rows = format_gadget_rows_for_display(self.result_data, gadgets) if self.result_data is not None else []
                 self.apply_filter()
                 self.task = None
@@ -590,10 +603,58 @@ if core_ui_enabled():
                 self.update_find_button(self.resolve_data())
                 self.status.setText(f"Search failed: {message}")
 
+            def data_identity(self, data=None):
+                if data is None:
+                    data = self.resolve_data()
+                if data is None:
+                    return None
+
+                filename = getattr(getattr(data, "file", None), "filename", "")
+                arch = getattr(getattr(data, "arch", None), "name", "")
+                view_type = getattr(data, "view_type", "")
+                start = int(getattr(data, "start", 0))
+                return (filename, view_type, arch, start)
+
+            def search_cache_key(self, data=None):
+                identity = self.data_identity(data)
+                if identity is None:
+                    return None
+                return (
+                    *identity,
+                    get_max_previous_bytes(data),
+                    get_include_branches(data),
+                    get_include_leave(data),
+                )
+
+            def load_cached_gadgets(self, data) -> bool:
+                cache_key = self.search_cache_key(data)
+                if cache_key is None or cache_key not in GADGET_CACHE:
+                    return False
+
+                self.search_data = data
+                self.result_data = data
+                self.rows = format_gadget_rows_for_display(data, GADGET_CACHE[cache_key])
+                self.apply_filter()
+                self.update_find_button(data)
+                return True
+
+            def cache_gadgets(self, data, gadgets) -> None:
+                cache_key = self.search_cache_key(data)
+                if cache_key is None:
+                    return
+
+                GADGET_CACHE[cache_key] = gadgets
+                while len(GADGET_CACHE) > GADGET_CACHE_LIMIT:
+                    GADGET_CACHE.pop(next(iter(GADGET_CACHE)))
+
             def apply_filter(self) -> None:
                 query = self.filter.text().strip()
                 category = self.category_filter.currentData()
-                rows = [row for row in self.rows if self.matches_category(row, category)]
+                if category == "starred":
+                    starred_addresses = self.starred_addresses()
+                    rows = [row for row in self.rows if row.address in starred_addresses]
+                else:
+                    rows = [row for row in self.rows if self.matches_category(row, category)]
 
                 if not query:
                     self.populate_table(rows)
@@ -628,8 +689,7 @@ if core_ui_enabled():
             def searchable_row_text(self, row) -> str:
                 return f"{self.format_address(row.address)} 0x{row.address:x} {row.text}"
 
-            @staticmethod
-            def matches_category(row, category) -> bool:
+            def matches_category(self, row, category) -> bool:
                 text = row.text.lower()
                 if category == "pop":
                     return re.search(r"\bpop\b", text) is not None
@@ -645,17 +705,47 @@ if core_ui_enabled():
                     return re.search(r"\bleave\b", text) is not None
                 return True
 
+            def starred_addresses(self) -> set[int]:
+                identity = self.data_identity(self.result_data or self.search_data or self.data)
+                if identity is None:
+                    return set()
+                return STARRED_GADGETS.setdefault(identity, set())
+
+            def is_starred(self, address: int) -> bool:
+                return address in self.starred_addresses()
+
+            def set_starred_for_rows(self, rows: list[int], starred: bool) -> None:
+                addresses = [addr for row in rows if (addr := self.address_value_for_row(row)) is not None]
+                if not addresses:
+                    return
+
+                starred_addresses = self.starred_addresses()
+                if starred:
+                    starred_addresses.update(addresses)
+                else:
+                    for address in addresses:
+                        starred_addresses.discard(address)
+                self.apply_filter()
+
             def populate_table(self, rows) -> None:
                 self.table.setSortingEnabled(False)
                 self.table.setRowCount(len(rows))
                 max_gadget_width = self.table.viewport().width()
                 max_address_width = self.table.fontMetrics().horizontalAdvance("Address") + 28
+                starred_addresses = self.starred_addresses()
                 for row_index, row in enumerate(rows):
                     formatted_address = self.format_address(row.address)
                     addr_item = AddressTableWidgetItem(formatted_address)
                     addr_item.setData(Qt.ItemDataRole.UserRole, row.address)
                     gadget_item = QTableWidgetItem(row.text)
                     gadget_item.setData(TOKEN_FRAGMENTS_ROLE, row.fragments)
+                    if row.address in starred_addresses:
+                        font = addr_item.font()
+                        font.setBold(True)
+                        addr_item.setFont(font)
+                        gadget_item.setFont(font)
+                        addr_item.setToolTip("Starred gadget")
+                        gadget_item.setToolTip("Starred gadget")
                     self.table.setItem(row_index, 0, addr_item)
                     self.table.setItem(row_index, 1, gadget_item)
                     max_address_width = max(
@@ -696,6 +786,13 @@ if core_ui_enabled():
                 item = self.table.item(row, 0)
                 return item.text() if item is not None else None
 
+            def address_value_for_row(self, row: int) -> int | None:
+                item = self.table.item(row, 0)
+                if item is None:
+                    return None
+                value = item.data(Qt.ItemDataRole.UserRole)
+                return int(value) if value is not None else None
+
             def gadget_text_for_row(self, row: int) -> str | None:
                 item = self.table.item(row, 1)
                 return item.text() if item is not None else None
@@ -703,10 +800,32 @@ if core_ui_enabled():
             def copy_selected_addresses(self) -> None:
                 self.copy_addresses_for_rows(self.selected_table_rows())
 
-            def copy_addresses_for_rows(self, rows: list[int]) -> None:
-                addresses = [text for row in rows if (text := self.address_text_for_row(row))]
-                if addresses:
-                    QApplication.clipboard().setText("\n".join(addresses))
+            def copy_addresses_for_rows(self, rows: list[int], copy_format: str = "display") -> None:
+                addresses = [addr for row in rows if (addr := self.address_value_for_row(row)) is not None]
+                if not addresses:
+                    return
+
+                text = self.format_addresses_for_copy(addresses, copy_format)
+                if text:
+                    QApplication.clipboard().setText(text)
+
+            def format_addresses_for_copy(self, addresses: list[int], copy_format: str) -> str:
+                if copy_format == "display":
+                    return "\n".join(self.format_address(address) for address in addresses)
+                if copy_format == "hex":
+                    return "\n".join(f"0x{address:x}" for address in addresses)
+                if copy_format == "python":
+                    return "[" + ", ".join(f"0x{address:x}" for address in addresses) + "]"
+                if copy_format == "json":
+                    return json.dumps([f"0x{address:x}" for address in addresses])
+                if copy_format == "csv":
+                    return ",".join(f"0x{address:x}" for address in addresses)
+                if copy_format == "chain":
+                    return " + ".join(f"p64(0x{address:x})" for address in addresses)
+                return ""
+
+            def copy_selected_as_chain(self) -> None:
+                self.copy_addresses_for_rows(self.selected_table_rows(), "chain")
 
             def copy_gadgets_for_rows(self, rows: list[int]) -> None:
                 gadgets = [text for row in rows if (text := self.gadget_text_for_row(row))]
@@ -730,23 +849,66 @@ if core_ui_enabled():
                     self.table.selectRow(clicked_row)
 
                 selected_rows = self.selected_table_rows()
+                clicked_address = self.address_value_for_row(clicked_row) if clicked_row is not None else None
                 menu = QMenu(self)
+                if clicked_address is not None and self.is_starred(clicked_address):
+                    toggle_star = menu.addAction("Unstar Gadget")
+                else:
+                    toggle_star = menu.addAction("Star Gadget")
+                star_selected = menu.addAction("Star Selected")
+                unstar_selected = menu.addAction("Unstar Selected")
+                menu.addSeparator()
+
                 copy_address = menu.addAction("Copy Address")
                 copy_selected = menu.addAction("Copy Selected Addresses")
+                copy_chain = menu.addAction("Copy Selected as Chain")
+                copy_formats = menu.addMenu("Copy Addresses As")
+                copy_display = copy_formats.addAction("Displayed Lines")
+                copy_hex = copy_formats.addAction("Hex Lines")
+                copy_python = copy_formats.addAction("Python List")
+                copy_json = copy_formats.addAction("JSON List")
+                copy_csv = copy_formats.addAction("CSV")
+                copy_p64 = copy_formats.addAction("pwntools p64 Chain")
+                menu.addSeparator()
                 copy_gadget = menu.addAction("Copy Gadget Text")
                 copy_line = menu.addAction("Copy Address + Gadget")
 
+                toggle_star.setEnabled(clicked_row is not None)
                 copy_address.setEnabled(clicked_row is not None)
                 has_selection = bool(selected_rows)
+                star_selected.setEnabled(has_selection)
+                unstar_selected.setEnabled(has_selection)
                 copy_selected.setEnabled(has_selection)
+                copy_chain.setEnabled(has_selection)
+                copy_formats.setEnabled(has_selection)
                 copy_gadget.setEnabled(has_selection)
                 copy_line.setEnabled(has_selection)
 
                 action = menu.exec(view.viewport().mapToGlobal(position))
-                if action == copy_address and clicked_row is not None:
+                if action == toggle_star and clicked_row is not None:
+                    self.set_starred_for_rows([clicked_row], clicked_address not in self.starred_addresses())
+                elif action == star_selected:
+                    self.set_starred_for_rows(selected_rows, True)
+                elif action == unstar_selected:
+                    self.set_starred_for_rows(selected_rows, False)
+                elif action == copy_address and clicked_row is not None:
                     self.copy_addresses_for_rows([clicked_row])
                 elif action == copy_selected:
                     self.copy_addresses_for_rows(selected_rows)
+                elif action == copy_chain:
+                    self.copy_selected_as_chain()
+                elif action == copy_display:
+                    self.copy_addresses_for_rows(selected_rows)
+                elif action == copy_hex:
+                    self.copy_addresses_for_rows(selected_rows, "hex")
+                elif action == copy_python:
+                    self.copy_addresses_for_rows(selected_rows, "python")
+                elif action == copy_json:
+                    self.copy_addresses_for_rows(selected_rows, "json")
+                elif action == copy_csv:
+                    self.copy_addresses_for_rows(selected_rows, "csv")
+                elif action == copy_p64:
+                    self.copy_addresses_for_rows(selected_rows, "chain")
                 elif action == copy_gadget:
                     self.copy_gadgets_for_rows(selected_rows)
                 elif action == copy_line:
