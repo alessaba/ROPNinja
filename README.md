@@ -11,6 +11,7 @@ It started as a transformative fork of [`binja_rop`](https://github.com/m4ul3r/b
 - Syntax-highlighted gadget rendering using Binary Ninja token colors.
 - Category dropdown for all gadgets, pops, moves, calls, stack pivots, branches, and `leave`.
 - Text filtering across gadget text and addresses.
+- Horizontally scrollable gadget chains with the address column pinned in place.
 - Multi-row selection with `Ctrl+C` / `Cmd+C` address copying.
 - Optional short address display that strips leading zeroes.
 - Optional auto-find when the sidebar or split pane opens.

@@ -60,6 +60,7 @@ if core_ui_enabled():
             QStyle,
             QStyledItemDelegate,
             QStyleOptionViewItem,
+            QTableView,
             QSpinBox,
             QTableWidget,
             QTableWidgetItem,
@@ -279,12 +280,21 @@ if core_ui_enabled():
 
 
         class RopTableWidget(QTableWidget):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.resize_callback = None
+
             def keyPressEvent(self, event) -> None:
                 copy_modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
                 if event.key() == Qt.Key.Key_C and event.modifiers() & copy_modifiers:
                     self.copy_selected_addresses()
                     return
                 super().keyPressEvent(event)
+
+            def resizeEvent(self, event) -> None:
+                super().resizeEvent(event)
+                if self.resize_callback is not None:
+                    self.resize_callback()
 
             def copy_selected_addresses(self) -> None:
                 rows = sorted({index.row() for index in self.selectionModel().selectedRows()})
@@ -349,6 +359,7 @@ if core_ui_enabled():
                 self.status = QLabel("Ready", self)
 
                 self.table = RopTableWidget(0, 2, self)
+                self.table.resize_callback = self.update_frozen_table_geometry
                 self.table.setFont(getMonospaceFont(self))
                 self.table.setHorizontalHeaderLabels(["Address", "Gadget"])
                 self.table.verticalHeader().hide()
@@ -358,10 +369,35 @@ if core_ui_enabled():
                 self.table.setSortingEnabled(True)
                 self.table.setAlternatingRowColors(True)
                 self.table.setStyleSheet("QTableView::item { padding-left: 4px; padding-right: 10px; }")
-                self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-                self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+                self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+                self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+                self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+                self.table.horizontalHeader().setStretchLastSection(False)
+                self.table.setColumnHidden(0, True)
                 self.table.itemDoubleClicked.connect(self.navigate_to_item)
                 self.table.setItemDelegateForColumn(1, GadgetTokenDelegate(self.table))
+
+                self.frozen_table = QTableView(self.table)
+                self.frozen_table.setModel(self.table.model())
+                self.frozen_table.setSelectionModel(self.table.selectionModel())
+                self.frozen_table.setFont(self.table.font())
+                self.frozen_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                self.frozen_table.setAlternatingRowColors(True)
+                self.frozen_table.setStyleSheet(self.table.styleSheet())
+                self.frozen_table.verticalHeader().hide()
+                self.frozen_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+                self.frozen_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+                self.frozen_table.setColumnHidden(1, True)
+                self.frozen_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.frozen_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.frozen_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+                self.frozen_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+                self.frozen_table.doubleClicked.connect(self.navigate_to_index)
+                self.table.verticalScrollBar().valueChanged.connect(self.frozen_table.verticalScrollBar().setValue)
+                self.frozen_table.verticalScrollBar().valueChanged.connect(self.table.verticalScrollBar().setValue)
+                self.table.viewport().stackUnder(self.frozen_table)
+                self.frozen_table.show()
 
                 layout = QVBoxLayout()
                 layout.setContentsMargins(6, 6, 6, 6)
@@ -563,14 +599,43 @@ if core_ui_enabled():
             def populate_table(self, rows) -> None:
                 self.table.setSortingEnabled(False)
                 self.table.setRowCount(len(rows))
+                max_gadget_width = self.table.viewport().width()
+                max_address_width = self.table.fontMetrics().horizontalAdvance("Address") + 28
                 for row_index, row in enumerate(rows):
-                    addr_item = AddressTableWidgetItem(self.format_address(row.address))
+                    formatted_address = self.format_address(row.address)
+                    addr_item = AddressTableWidgetItem(formatted_address)
                     addr_item.setData(Qt.ItemDataRole.UserRole, row.address)
                     gadget_item = QTableWidgetItem(row.text)
                     gadget_item.setData(TOKEN_FRAGMENTS_ROLE, row.fragments)
                     self.table.setItem(row_index, 0, addr_item)
                     self.table.setItem(row_index, 1, gadget_item)
+                    max_address_width = max(
+                        max_address_width,
+                        self.table.fontMetrics().horizontalAdvance(formatted_address) + 28,
+                    )
+                    max_gadget_width = max(
+                        max_gadget_width,
+                        self.table.fontMetrics().horizontalAdvance(row.text) + 48,
+                    )
+
+                self.table.setColumnWidth(0, max_address_width)
+                self.frozen_table.setColumnWidth(0, max_address_width)
+                self.table.setColumnWidth(1, max_gadget_width)
+                self.update_frozen_table_geometry()
                 self.table.setSortingEnabled(True)
+
+            def update_frozen_table_geometry(self) -> None:
+                if not hasattr(self, "frozen_table"):
+                    return
+
+                frozen_width = self.frozen_table.columnWidth(0) + self.frozen_table.frameWidth() * 2
+                self.table.setViewportMargins(frozen_width, 0, 0, 0)
+                self.frozen_table.setGeometry(
+                    self.table.frameWidth(),
+                    self.table.frameWidth(),
+                    frozen_width,
+                    self.table.viewport().height() + self.table.horizontalHeader().height(),
+                )
 
             def format_address(self, addr: int) -> str:
                 if self.strip_address_zeros:
@@ -578,7 +643,12 @@ if core_ui_enabled():
                 return f"0x{addr:016x}"
 
             def navigate_to_item(self, item: QTableWidgetItem) -> None:
-                row = item.row()
+                self.navigate_to_row(item.row())
+
+            def navigate_to_index(self, index) -> None:
+                self.navigate_to_row(index.row())
+
+            def navigate_to_row(self, row: int) -> None:
                 addr_item = self.table.item(row, 0)
                 if addr_item is None:
                     return
