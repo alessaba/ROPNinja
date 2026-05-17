@@ -20,7 +20,9 @@ SETTING_INCLUDE_BRANCHES = "ropninja.includeBranches"
 SETTING_INCLUDE_LEAVE = "ropninja.includeLeave"
 SETTING_STRIP_ADDRESS_ZEROS = "ropninja.stripAddressZeros"
 SETTING_AUTO_FIND_ON_OPEN = "ropninja.autoFindOnOpen"
+SETTING_STARRED_ADDRESS_COLOR = "ropninja.starredAddressColor"
 DEFAULT_MAX_PREVIOUS_BYTES = 32
+DEFAULT_STARRED_ADDRESS_COLOR = "#d8b84a"
 
 _RET_INSTRS = {"retn": [b"\xc3", b"\xf2\xc3"], "retf": [b"\xcb"]}
 _RET_MNEMONICS = {"ret", "retn", "retf"}
@@ -131,6 +133,17 @@ def register_plugin_settings() -> None:
             }
         ),
     )
+    settings.register_setting(
+        SETTING_STARRED_ADDRESS_COLOR,
+        json.dumps(
+            {
+                "title": "Starred Address Color",
+                "description": "Tint color used for addresses of starred gadgets in the ROPNinja table.",
+                "type": "string",
+                "default": DEFAULT_STARRED_ADDRESS_COLOR,
+            }
+        ),
+    )
 
 
 def get_max_previous_bytes(bv: BinaryView | None = None) -> int:
@@ -174,6 +187,14 @@ def get_auto_find_on_open(bv: BinaryView | None = None) -> bool:
         return Settings().get_bool(SETTING_AUTO_FIND_ON_OPEN, bv)
     except Exception:
         return False
+
+
+def get_starred_address_color(bv: BinaryView | None = None) -> str:
+    try:
+        value = Settings().get_string(SETTING_STARRED_ADDRESS_COLOR, bv)
+    except Exception:
+        value = DEFAULT_STARRED_ADDRESS_COLOR
+    return value or DEFAULT_STARRED_ADDRESS_COLOR
 
 
 def _normalize_gadget(gadget: str) -> str:

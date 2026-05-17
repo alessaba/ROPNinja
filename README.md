@@ -13,7 +13,7 @@ It started as a transformative fork of [`binja_rop`](https://github.com/m4ul3r/b
 - Text and regex filtering across gadget text and addresses.
 - Horizontally scrollable gadget chains with the address column pinned in place.
 - Multi-row selection with `Ctrl+C` / `Cmd+C` address copying plus right-click copy formats.
-- Starred gadgets for marking interesting finds without adding another visible toolbar.
+- Starred gadgets for marking interesting finds, with a subtle configurable address tint.
 - Per-view gadget caching so reopening or auto-finding with the same search settings is instant.
 - Optional short address display that strips leading zeroes.
 - Optional auto-find when the sidebar or split pane opens.
@@ -71,6 +71,7 @@ ROPNinja registers clean `ropninja.*` settings:
 - `ropninja.includeLeave`: include gadgets containing `leave`.
 - `ropninja.stripAddressZeros`: display compact addresses in the sidebar.
 - `ropninja.autoFindOnOpen`: automatically search when the sidebar or split pane is shown.
+- `ropninja.starredAddressColor`: tint color for addresses of starred gadgets.
 
 When auto-find is enabled, ROPNinja hides the manual `Find` button and gives the filter/category controls the extra room.
 

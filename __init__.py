@@ -8,12 +8,14 @@ from binaryninja.plugin import BackgroundTaskThread
 from binaryninja.settings import Settings
 
 from .ropninja import (
+    DEFAULT_STARRED_ADDRESS_COLOR,
     PLUGIN_NAME,
     SETTING_AUTO_FIND_ON_OPEN,
     SETTING_DEDUPLICATE_GADGETS,
     SETTING_INCLUDE_BRANCHES,
     SETTING_INCLUDE_LEAVE,
     SETTING_MAX_PREVIOUS_BYTES,
+    SETTING_STARRED_ADDRESS_COLOR,
     SETTING_STRIP_ADDRESS_ZEROS,
     find_rop_gadgets_in_view,
     format_gadget_rows_for_display,
@@ -22,6 +24,7 @@ from .ropninja import (
     get_include_branches,
     get_include_leave,
     get_max_previous_bytes,
+    get_starred_address_color,
     get_strip_address_zeros,
     register_plugin_settings,
 )
@@ -45,10 +48,11 @@ if core_ui_enabled():
             getTokenColor,
         )
         from PySide6.QtCore import QObject, QPointF, QRectF, QSize, Qt, QTimer, Signal
-        from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPen, QPixmap
+        from PySide6.QtGui import QColor, QBrush, QFont, QIcon, QImage, QPainter, QPen, QPixmap
         from PySide6.QtWidgets import (
             QAbstractItemView,
             QCheckBox,
+            QColorDialog,
             QComboBox,
             QDialog,
             QFormLayout,
@@ -347,6 +351,8 @@ if core_ui_enabled():
                 self.result_data = None
                 self.auto_find_views = []
                 self.strip_address_zeros = get_strip_address_zeros()
+                self.starred_address_color = self.valid_starred_address_color(get_starred_address_color())
+                self.starred_address_brush = QBrush(self.starred_address_color)
 
                 self.find_button = QPushButton("Find", self)
                 self.find_button.clicked.connect(lambda: self.start_search(force=True))
@@ -461,6 +467,7 @@ if core_ui_enabled():
 
             def settings_changed(self) -> None:
                 self.strip_address_zeros = get_strip_address_zeros()
+                self.set_starred_address_color(get_starred_address_color())
                 data = self.resolve_data()
                 self.update_find_button(data)
                 if self.rows:
@@ -733,6 +740,34 @@ if core_ui_enabled():
                         starred_addresses.discard(address)
                 self.apply_filter()
 
+            @staticmethod
+            def valid_starred_address_color(value: str) -> QColor:
+                color = QColor(value)
+                if color.isValid():
+                    return color
+                return QColor(DEFAULT_STARRED_ADDRESS_COLOR)
+
+            def set_starred_address_color(self, value: str | QColor) -> None:
+                color = value if isinstance(value, QColor) else self.valid_starred_address_color(value)
+                if not color.isValid():
+                    color = self.valid_starred_address_color("")
+                self.starred_address_color = QColor(color)
+                self.starred_address_brush = QBrush(self.starred_address_color)
+
+            def choose_starred_address_color(self) -> None:
+                color = QColorDialog.getColor(self.starred_address_color, self, "Starred Address Color")
+                if not color.isValid():
+                    return
+
+                Settings().set_string(
+                    SETTING_STARRED_ADDRESS_COLOR,
+                    color.name(),
+                    scope=SettingsScope.SettingsUserScope,
+                )
+                self.set_starred_address_color(color)
+                if self.rows:
+                    self.apply_filter()
+
             def populate_table(self, rows) -> None:
                 self.table.setSortingEnabled(False)
                 self.table.setRowCount(len(rows))
@@ -749,6 +784,7 @@ if core_ui_enabled():
                         font = addr_item.font()
                         font.setBold(True)
                         addr_item.setFont(font)
+                        addr_item.setForeground(self.starred_address_brush)
                         gadget_item.setFont(font)
                         addr_item.setToolTip("Starred gadget")
                         gadget_item.setToolTip("Starred gadget")
@@ -882,6 +918,7 @@ if core_ui_enabled():
                 if selected_count <= 1 and clicked_address is not None:
                     if self.is_starred(clicked_address):
                         actions["unstar_clicked"] = menu.addAction("Unstar Gadget")
+                        actions["change_star_color"] = menu.addAction("Change Star Color...")
                     else:
                         actions["star_clicked"] = menu.addAction("Star Gadget")
 
@@ -890,6 +927,7 @@ if core_ui_enabled():
                         actions["star_selected"] = menu.addAction("Star Selected")
                     if selected_starred:
                         actions["unstar_selected"] = menu.addAction("Unstar Selected")
+                        actions["change_star_color"] = menu.addAction("Change Star Color...")
 
                 if actions:
                     menu.addSeparator()
@@ -931,6 +969,8 @@ if core_ui_enabled():
                     self.set_starred_for_rows(selected_rows, True)
                 elif action_name == "unstar_selected":
                     self.set_starred_for_rows(selected_rows, False)
+                elif action_name == "change_star_color":
+                    self.choose_starred_address_color()
                 elif action_name == "copy_clicked_address" and clicked_row is not None:
                     self.copy_addresses_for_rows([clicked_row])
                 elif action_name == "copy_clicked_hex" and clicked_row is not None:

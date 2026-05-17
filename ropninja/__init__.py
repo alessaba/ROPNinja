@@ -1,5 +1,6 @@
 from .rop import (
     DEFAULT_MAX_PREVIOUS_BYTES,
+    DEFAULT_STARRED_ADDRESS_COLOR,
     GadgetDisplayRow,
     GadgetInstruction,
     PLUGIN_NAME,
@@ -10,6 +11,7 @@ from .rop import (
     SETTING_INCLUDE_BRANCHES,
     SETTING_INCLUDE_LEAVE,
     SETTING_MAX_PREVIOUS_BYTES,
+    SETTING_STARRED_ADDRESS_COLOR,
     SETTING_STRIP_ADDRESS_ZEROS,
     find_rop_gadgets_in_view,
     format_gadget_rows_for_display,
@@ -19,12 +21,14 @@ from .rop import (
     get_include_branches,
     get_include_leave,
     get_max_previous_bytes,
+    get_starred_address_color,
     get_strip_address_zeros,
     register_plugin_settings,
 )
 
 __all__ = [
     "DEFAULT_MAX_PREVIOUS_BYTES",
+    "DEFAULT_STARRED_ADDRESS_COLOR",
     "GadgetDisplayRow",
     "GadgetInstruction",
     "PLUGIN_NAME",
@@ -35,6 +39,7 @@ __all__ = [
     "SETTING_INCLUDE_BRANCHES",
     "SETTING_INCLUDE_LEAVE",
     "SETTING_MAX_PREVIOUS_BYTES",
+    "SETTING_STARRED_ADDRESS_COLOR",
     "SETTING_STRIP_ADDRESS_ZEROS",
     "find_rop_gadgets_in_view",
     "format_gadget_rows_for_display",
@@ -44,6 +49,7 @@ __all__ = [
     "get_include_branches",
     "get_include_leave",
     "get_max_previous_bytes",
+    "get_starred_address_color",
     "get_strip_address_zeros",
     "register_plugin_settings",
 ]
