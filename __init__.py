@@ -105,6 +105,13 @@ if core_ui_enabled():
             return QIcon(QPixmap.fromImage(image))
 
 
+        def valid_starred_address_color(value: str) -> QColor:
+            color = QColor(value)
+            if color.isValid():
+                return color
+            return QColor(DEFAULT_STARRED_ADDRESS_COLOR)
+
+
         class BinjaRopSettingsDialog(QDialog):
             settings_saved = Signal()
 
@@ -122,6 +129,9 @@ if core_ui_enabled():
                 self.include_branches = QCheckBox("Include jump gadgets", self)
                 self.include_leave = QCheckBox("Include leave gadgets", self)
                 self.strip_address_zeros = QCheckBox("Strip leading address zeros", self)
+                self.starred_address_color = valid_starred_address_color(get_starred_address_color())
+                self.starred_color_button = QPushButton(self)
+                self.starred_color_button.clicked.connect(self.choose_starred_address_color)
 
                 form = QFormLayout()
                 form.addRow("Maximum gadget backtrack", self.max_previous_bytes)
@@ -130,6 +140,7 @@ if core_ui_enabled():
                 form.addRow("", self.include_branches)
                 form.addRow("", self.include_leave)
                 form.addRow("", self.strip_address_zeros)
+                form.addRow("Starred address color", self.starred_color_button)
 
                 self.save_button = QPushButton("&Save", self)
                 self.close_button = QPushButton("Close", self)
@@ -147,6 +158,21 @@ if core_ui_enabled():
                 self.setLayout(layout)
                 self.load_settings()
 
+            def update_starred_color_button(self) -> None:
+                color_name = self.starred_address_color.name()
+                self.starred_color_button.setText(color_name)
+                self.starred_color_button.setToolTip(color_name)
+                self.starred_color_button.setStyleSheet(
+                    f"QPushButton {{ color: {color_name}; font-weight: bold; }}"
+                )
+
+            def choose_starred_address_color(self) -> None:
+                color = QColorDialog.getColor(self.starred_address_color, self, "Starred Address Color")
+                if not color.isValid():
+                    return
+                self.starred_address_color = color
+                self.update_starred_color_button()
+
             def load_settings(self) -> None:
                 self.max_previous_bytes.setValue(get_max_previous_bytes())
                 self.deduplicate_gadgets.setChecked(get_deduplicate_gadgets())
@@ -154,6 +180,8 @@ if core_ui_enabled():
                 self.include_branches.setChecked(get_include_branches())
                 self.include_leave.setChecked(get_include_leave())
                 self.strip_address_zeros.setChecked(get_strip_address_zeros())
+                self.starred_address_color = valid_starred_address_color(get_starred_address_color())
+                self.update_starred_color_button()
 
             def save_settings(self) -> None:
                 settings = Settings()
@@ -185,6 +213,11 @@ if core_ui_enabled():
                 settings.set_bool(
                     SETTING_STRIP_ADDRESS_ZEROS,
                     self.strip_address_zeros.isChecked(),
+                    scope=SettingsScope.SettingsUserScope,
+                )
+                settings.set_string(
+                    SETTING_STARRED_ADDRESS_COLOR,
+                    self.starred_address_color.name(),
                     scope=SettingsScope.SettingsUserScope,
                 )
                 self.settings_saved.emit()
@@ -351,7 +384,7 @@ if core_ui_enabled():
                 self.result_data = None
                 self.auto_find_views = []
                 self.strip_address_zeros = get_strip_address_zeros()
-                self.starred_address_color = self.valid_starred_address_color(get_starred_address_color())
+                self.starred_address_color = valid_starred_address_color(get_starred_address_color())
                 self.starred_address_brush = QBrush(self.starred_address_color)
 
                 self.find_button = QPushButton("Find", self)
@@ -367,9 +400,9 @@ if core_ui_enabled():
                 self.category_filter = QComboBox(self)
                 self.category_filter.setMinimumWidth(128)
                 self.category_filter.addItem("All gadgets", "all")
-                self.category_filter.addItem("Pop gadgets", "pop")
-                self.category_filter.addItem("Move gadgets", "mov")
-                self.category_filter.addItem("Call gadgets", "call")
+                self.category_filter.addItem("POP gadgets", "pop")
+                self.category_filter.addItem("MOV gadgets", "mov")
+                self.category_filter.addItem("CALL gadgets", "call")
                 self.category_filter.addItem("Stack pivots", "stack")
                 self.category_filter.addItem("Starred", "starred")
                 self.category_filter.addItem("Branches", "branch")
@@ -386,11 +419,15 @@ if core_ui_enabled():
                 self.regex_filter.setFixedWidth(34)
                 self.regex_filter.toggled.connect(lambda _: self.apply_filter())
 
+                filter_layout = QHBoxLayout()
+                filter_layout.setContentsMargins(0, 0, 0, 0)
+                filter_layout.addWidget(self.filter, 1)
+                filter_layout.addWidget(self.regex_filter)
+
                 controls_layout = QHBoxLayout()
                 controls_layout.setContentsMargins(0, 0, 0, 0)
                 controls_layout.addWidget(self.find_button)
                 controls_layout.addWidget(self.category_filter, 1)
-                controls_layout.addWidget(self.regex_filter)
                 controls_layout.addWidget(self.settings_button)
 
                 self.status = QLabel("Ready", self)
@@ -450,7 +487,7 @@ if core_ui_enabled():
 
                 layout = QVBoxLayout()
                 layout.setContentsMargins(6, 6, 6, 6)
-                layout.addWidget(self.filter)
+                layout.addLayout(filter_layout)
                 layout.addLayout(controls_layout)
                 layout.addWidget(self.table, 1)
                 layout.addWidget(self.status)
@@ -740,33 +777,12 @@ if core_ui_enabled():
                         starred_addresses.discard(address)
                 self.apply_filter()
 
-            @staticmethod
-            def valid_starred_address_color(value: str) -> QColor:
-                color = QColor(value)
-                if color.isValid():
-                    return color
-                return QColor(DEFAULT_STARRED_ADDRESS_COLOR)
-
             def set_starred_address_color(self, value: str | QColor) -> None:
-                color = value if isinstance(value, QColor) else self.valid_starred_address_color(value)
+                color = value if isinstance(value, QColor) else valid_starred_address_color(value)
                 if not color.isValid():
-                    color = self.valid_starred_address_color("")
+                    color = valid_starred_address_color("")
                 self.starred_address_color = QColor(color)
                 self.starred_address_brush = QBrush(self.starred_address_color)
-
-            def choose_starred_address_color(self) -> None:
-                color = QColorDialog.getColor(self.starred_address_color, self, "Starred Address Color")
-                if not color.isValid():
-                    return
-
-                Settings().set_string(
-                    SETTING_STARRED_ADDRESS_COLOR,
-                    color.name(),
-                    scope=SettingsScope.SettingsUserScope,
-                )
-                self.set_starred_address_color(color)
-                if self.rows:
-                    self.apply_filter()
 
             def populate_table(self, rows) -> None:
                 self.table.setSortingEnabled(False)
@@ -918,7 +934,6 @@ if core_ui_enabled():
                 if selected_count <= 1 and clicked_address is not None:
                     if self.is_starred(clicked_address):
                         actions["unstar_clicked"] = menu.addAction("Unstar Gadget")
-                        actions["change_star_color"] = menu.addAction("Change Star Color...")
                     else:
                         actions["star_clicked"] = menu.addAction("Star Gadget")
 
@@ -927,7 +942,6 @@ if core_ui_enabled():
                         actions["star_selected"] = menu.addAction("Star Selected")
                     if selected_starred:
                         actions["unstar_selected"] = menu.addAction("Unstar Selected")
-                        actions["change_star_color"] = menu.addAction("Change Star Color...")
 
                 if actions:
                     menu.addSeparator()
@@ -969,8 +983,6 @@ if core_ui_enabled():
                     self.set_starred_for_rows(selected_rows, True)
                 elif action_name == "unstar_selected":
                     self.set_starred_for_rows(selected_rows, False)
-                elif action_name == "change_star_color":
-                    self.choose_starred_address_color()
                 elif action_name == "copy_clicked_address" and clicked_row is not None:
                     self.copy_addresses_for_rows([clicked_row])
                 elif action_name == "copy_clicked_hex" and clicked_row is not None:
