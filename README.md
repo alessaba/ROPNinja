@@ -22,19 +22,35 @@ It started as a transformative fork of [`binja_rop`](https://github.com/m4ul3r/b
 
 ## Installation
 
-Clone this repository into your Binary Ninja plugins directory:
+Clone this repository into your Binary Ninja plugins directory, then restart Binary Ninja.
+
+macOS:
 
 ```sh
 git clone https://github.com/alessaba/ROPNinja.git "$HOME/Library/Application Support/Binary Ninja/plugins/ROPNinja"
 ```
 
-Restart Binary Ninja, then open the `ROPNinja` sidebar button.
+Linux:
+
+```sh
+git clone https://github.com/alessaba/ROPNinja.git "$HOME/.binaryninja/plugins/ROPNinja"
+```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/alessaba/ROPNinja.git "$env:APPDATA\Binary Ninja\plugins\ROPNinja"
+```
+
+Open the `ROPNinja` sidebar button after Binary Ninja restarts.
 
 ### Platform Paths
 
 - macOS: `$HOME/Library/Application Support/Binary Ninja/plugins/ROPNinja`
 - Linux: `$HOME/.binaryninja/plugins/ROPNinja`
 - Windows: `%APPDATA%\Binary Ninja\plugins\ROPNinja`
+
+ROPNinja is pure Python and uses Binary Ninja's bundled Qt/PySide UI APIs, so it does not require platform-specific dependencies.
 
 ## Usage
 

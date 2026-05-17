@@ -78,7 +78,7 @@ if core_ui_enabled():
 
 
         def make_settings_icon() -> QIcon:
-            image = QImage(24, 24, QImage.Format_ARGB32)
+            image = QImage(24, 24, QImage.Format.Format_ARGB32)
             image.fill(0)
 
             painter = QPainter()
@@ -966,7 +966,7 @@ if core_ui_enabled():
 
         class BinjaRopSidebarWidgetType(SidebarWidgetType):
             def __init__(self):
-                icon = QImage(56, 56, QImage.Format_RGB32)
+                icon = QImage(56, 56, QImage.Format.Format_RGB32)
                 icon.fill(0)
 
                 painter = QPainter()

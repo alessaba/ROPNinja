@@ -23,21 +23,15 @@
     "Windows"
   ],
   "installinstructions": {
-    "Darwin": "",
-    "Linux": "",
-    "Windows": ""
+    "Darwin": "Clone this repository into ~/Library/Application Support/Binary Ninja/plugins/ROPNinja and restart Binary Ninja.",
+    "Linux": "Clone this repository into ~/.binaryninja/plugins/ROPNinja and restart Binary Ninja.",
+    "Windows": "Clone this repository into %APPDATA%\\Binary Ninja\\plugins\\ROPNinja and restart Binary Ninja."
   },
   "dependencies": {
-    "pip": [
-    ],
-    "apt": [
-    ],
-    "installers": [
-      ""
-    ],
-    "other": [
-      ""
-    ]
+    "pip": [],
+    "apt": [],
+    "installers": [],
+    "other": []
   },
   "version": "4.0.0",
   "author": "Alessaba; based on binja_rop by m4ul3r",
