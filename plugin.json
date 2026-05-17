@@ -12,7 +12,7 @@
     "python3"
   ],
   "description": "Modern Binary Ninja ROP gadget sidebar and split-pane explorer.",
-  "longdescription": "ROPNinja is a modern Binary Ninja ROP gadget explorer with a sidebar-first UI, split-pane support, syntax highlighting, filtering, address copying, and configurable gadget search behavior. Forked from binja_rop by m4ul3r and inspired by binjago.",
+  "longdescription": "ROPNinja is a modern Binary Ninja ROP gadget explorer with a sidebar-first UI, split-pane support, syntax highlighting, filtering, address copying, optional auto-find, and configurable gadget search behavior. Forked from binja_rop by m4ul3r and inspired by binjago.",
   "license": {
     "name": "MIT",
     "text": ""

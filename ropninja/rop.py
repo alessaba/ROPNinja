@@ -19,6 +19,7 @@ SETTING_DEDUPLICATE_GADGETS = "ropninja.deduplicateGadgets"
 SETTING_INCLUDE_BRANCHES = "ropninja.includeBranches"
 SETTING_INCLUDE_LEAVE = "ropninja.includeLeave"
 SETTING_STRIP_ADDRESS_ZEROS = "ropninja.stripAddressZeros"
+SETTING_AUTO_FIND_ON_OPEN = "ropninja.autoFindOnOpen"
 DEFAULT_MAX_PREVIOUS_BYTES = 32
 
 _RET_INSTRS = {"retn": [b"\xc3", b"\xf2\xc3"], "retf": [b"\xcb"]}
@@ -119,6 +120,17 @@ def register_plugin_settings() -> None:
             }
         ),
     )
+    settings.register_setting(
+        SETTING_AUTO_FIND_ON_OPEN,
+        json.dumps(
+            {
+                "title": "Auto-Find When UI Opens",
+                "description": "Automatically search for ROP gadgets when the ROPNinja sidebar or split pane is shown.",
+                "type": "boolean",
+                "default": False,
+            }
+        ),
+    )
 
 
 def get_max_previous_bytes(bv: BinaryView | None = None) -> int:
@@ -153,6 +165,13 @@ def get_include_leave(bv: BinaryView | None = None) -> bool:
 def get_strip_address_zeros(bv: BinaryView | None = None) -> bool:
     try:
         return Settings().get_bool(SETTING_STRIP_ADDRESS_ZEROS, bv)
+    except Exception:
+        return False
+
+
+def get_auto_find_on_open(bv: BinaryView | None = None) -> bool:
+    try:
+        return Settings().get_bool(SETTING_AUTO_FIND_ON_OPEN, bv)
     except Exception:
         return False
 

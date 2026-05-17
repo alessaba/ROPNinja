@@ -13,6 +13,7 @@ It started as a transformative fork of [`binja_rop`](https://github.com/m4ul3r/b
 - Text filtering across gadget text and addresses.
 - Multi-row selection with `Ctrl+C` / `Cmd+C` address copying.
 - Optional short address display that strips leading zeroes.
+- Optional auto-find when the sidebar or split pane opens.
 - Configurable gadget backtracking, deduplication, jump gadgets, and `leave` gadgets.
 - Faster bounded scanning over executable ranges, with decoded-instruction caching and cancellation support.
 
@@ -36,7 +37,7 @@ Restart Binary Ninja, then open the `ROPNinja` sidebar button.
 
 1. Open a binary in Binary Ninja.
 2. Click the `ROPNinja` sidebar icon, or open it as a split pane.
-3. Press `Find` to discover gadgets for the current BinaryView.
+3. Press `Find` to discover gadgets for the current BinaryView, or enable auto-find in settings.
 4. Filter with the dropdown or search field.
 5. Select one or more rows and press `Ctrl+C` / `Cmd+C` to copy addresses.
 6. Double-click a gadget to navigate to its address.
@@ -50,6 +51,7 @@ ROPNinja registers clean `ropninja.*` settings:
 - `ropninja.includeBranches`: include gadgets containing `jmp` or conditional jumps.
 - `ropninja.includeLeave`: include gadgets containing `leave`.
 - `ropninja.stripAddressZeros`: display compact addresses in the sidebar.
+- `ropninja.autoFindOnOpen`: automatically search when the sidebar or split pane is shown.
 
 ## Why Are Jumps And `leave` Disabled By Default?
 

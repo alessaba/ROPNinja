@@ -7,6 +7,7 @@ from binaryninja.settings import Settings
 
 from .ropninja import (
     PLUGIN_NAME,
+    SETTING_AUTO_FIND_ON_OPEN,
     SETTING_DEDUPLICATE_GADGETS,
     SETTING_INCLUDE_BRANCHES,
     SETTING_INCLUDE_LEAVE,
@@ -14,6 +15,7 @@ from .ropninja import (
     SETTING_STRIP_ADDRESS_ZEROS,
     find_rop_gadgets_in_view,
     format_gadget_rows_for_display,
+    get_auto_find_on_open,
     get_deduplicate_gadgets,
     get_include_branches,
     get_include_leave,
@@ -40,7 +42,7 @@ if core_ui_enabled():
             getMonospaceFont,
             getTokenColor,
         )
-        from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
+        from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
         from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
         from PySide6.QtWidgets import (
             QAbstractItemView,
@@ -79,6 +81,7 @@ if core_ui_enabled():
                 self.max_previous_bytes.setSuffix(" bytes")
 
                 self.deduplicate_gadgets = QCheckBox("Deduplicate gadgets", self)
+                self.auto_find_on_open = QCheckBox("Auto-find when UI opens", self)
                 self.include_branches = QCheckBox("Include jump gadgets", self)
                 self.include_leave = QCheckBox("Include leave gadgets", self)
                 self.strip_address_zeros = QCheckBox("Strip leading address zeros", self)
@@ -86,6 +89,7 @@ if core_ui_enabled():
                 form = QFormLayout()
                 form.addRow("Maximum gadget backtrack", self.max_previous_bytes)
                 form.addRow("", self.deduplicate_gadgets)
+                form.addRow("", self.auto_find_on_open)
                 form.addRow("", self.include_branches)
                 form.addRow("", self.include_leave)
                 form.addRow("", self.strip_address_zeros)
@@ -109,6 +113,7 @@ if core_ui_enabled():
             def load_settings(self) -> None:
                 self.max_previous_bytes.setValue(get_max_previous_bytes())
                 self.deduplicate_gadgets.setChecked(get_deduplicate_gadgets())
+                self.auto_find_on_open.setChecked(get_auto_find_on_open())
                 self.include_branches.setChecked(get_include_branches())
                 self.include_leave.setChecked(get_include_leave())
                 self.strip_address_zeros.setChecked(get_strip_address_zeros())
@@ -123,6 +128,11 @@ if core_ui_enabled():
                 settings.set_bool(
                     SETTING_DEDUPLICATE_GADGETS,
                     self.deduplicate_gadgets.isChecked(),
+                    scope=SettingsScope.SettingsUserScope,
+                )
+                settings.set_bool(
+                    SETTING_AUTO_FIND_ON_OPEN,
+                    self.auto_find_on_open.isChecked(),
                     scope=SettingsScope.SettingsUserScope,
                 )
                 settings.set_bool(
@@ -268,6 +278,7 @@ if core_ui_enabled():
                 self.task = None
                 self.search_data = None
                 self.result_data = None
+                self.auto_find_views = []
                 self.strip_address_zeros = get_strip_address_zeros()
 
                 self.find_button = QPushButton("Find", self)
@@ -333,6 +344,10 @@ if core_ui_enabled():
 
                 self.refresh_context()
 
+            def showEvent(self, event) -> None:
+                super().showEvent(event)
+                self.maybe_start_auto_find()
+
             def set_view_frame(self, frame) -> None:
                 self.frame = frame
                 self.refresh_context()
@@ -390,6 +405,25 @@ if core_ui_enabled():
                 elif not self.rows:
                     filename = getattr(getattr(data, "file", None), "filename", "")
                     self.status.setText(f"Ready: {filename}" if filename else "Ready")
+                self.maybe_start_auto_find()
+
+            def auto_find_seen_data(self, data) -> bool:
+                return any(self.same_data(data, seen_data) for seen_data in self.auto_find_views)
+
+            def maybe_start_auto_find(self) -> None:
+                if not self.isVisible() or not get_auto_find_on_open():
+                    return
+
+                data = self.resolve_data()
+                if data is None or self.task is not None:
+                    return
+                if self.result_data is not None and self.same_data(data, self.result_data):
+                    return
+                if self.auto_find_seen_data(data):
+                    return
+
+                self.auto_find_views.append(data)
+                QTimer.singleShot(0, self.start_search)
 
             def start_search(self) -> None:
                 data = self.resolve_data()
