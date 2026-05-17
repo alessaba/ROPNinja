@@ -406,7 +406,6 @@ if core_ui_enabled():
                 self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
                 self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
                 self.table.horizontalHeader().setStretchLastSection(False)
-                self.table.setColumnHidden(0, True)
                 self.table.itemDoubleClicked.connect(self.navigate_to_item)
                 self.table.setItemDelegateForColumn(1, GadgetTokenDelegate(self.table))
                 self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -849,69 +848,102 @@ if core_ui_enabled():
                     self.table.selectRow(clicked_row)
 
                 selected_rows = self.selected_table_rows()
+                if clicked_row is None and not selected_rows:
+                    return
+
                 clicked_address = self.address_value_for_row(clicked_row) if clicked_row is not None else None
+                selected_addresses = [
+                    address
+                    for row in selected_rows
+                    if (address := self.address_value_for_row(row)) is not None
+                ]
+                selected_count = len(selected_rows)
+                selected_starred = [address for address in selected_addresses if self.is_starred(address)]
+                selected_unstarred = [address for address in selected_addresses if not self.is_starred(address)]
                 menu = QMenu(self)
-                if clicked_address is not None and self.is_starred(clicked_address):
-                    toggle_star = menu.addAction("Unstar Gadget")
+                actions = {}
+
+                if selected_count <= 1 and clicked_address is not None:
+                    if self.is_starred(clicked_address):
+                        actions["unstar_clicked"] = menu.addAction("Unstar Gadget")
+                    else:
+                        actions["star_clicked"] = menu.addAction("Star Gadget")
+
+                if selected_count > 1:
+                    if selected_unstarred:
+                        actions["star_selected"] = menu.addAction("Star Selected")
+                    if selected_starred:
+                        actions["unstar_selected"] = menu.addAction("Unstar Selected")
+
+                if actions:
+                    menu.addSeparator()
+
+                if selected_count <= 1:
+                    if clicked_row is not None:
+                        actions["copy_clicked_address"] = menu.addAction("Copy Address")
+                        actions["copy_clicked_gadget"] = menu.addAction("Copy Gadget Text")
+                        actions["copy_clicked_line"] = menu.addAction("Copy Address + Gadget")
+
+                        copy_as = menu.addMenu("Copy Address As")
+                        actions["copy_clicked_hex"] = copy_as.addAction("Hex")
+                        actions["copy_clicked_p64"] = copy_as.addAction("pwntools p64")
                 else:
-                    toggle_star = menu.addAction("Star Gadget")
-                star_selected = menu.addAction("Star Selected")
-                unstar_selected = menu.addAction("Unstar Selected")
-                menu.addSeparator()
+                    actions["copy_selected"] = menu.addAction("Copy Selected Addresses")
+                    actions["copy_chain"] = menu.addAction("Copy Selected as Chain")
+                    actions["copy_gadget"] = menu.addAction("Copy Selected Gadget Text")
+                    actions["copy_line"] = menu.addAction("Copy Selected Address + Gadget")
 
-                copy_address = menu.addAction("Copy Address")
-                copy_selected = menu.addAction("Copy Selected Addresses")
-                copy_chain = menu.addAction("Copy Selected as Chain")
-                copy_formats = menu.addMenu("Copy Addresses As")
-                copy_display = copy_formats.addAction("Displayed Lines")
-                copy_hex = copy_formats.addAction("Hex Lines")
-                copy_python = copy_formats.addAction("Python List")
-                copy_json = copy_formats.addAction("JSON List")
-                copy_csv = copy_formats.addAction("CSV")
-                copy_p64 = copy_formats.addAction("pwntools p64 Chain")
-                menu.addSeparator()
-                copy_gadget = menu.addAction("Copy Gadget Text")
-                copy_line = menu.addAction("Copy Address + Gadget")
+                    copy_as = menu.addMenu("Copy Selected Addresses As")
+                    actions["copy_display"] = copy_as.addAction("Displayed Lines")
+                    actions["copy_hex"] = copy_as.addAction("Hex Lines")
+                    actions["copy_python"] = copy_as.addAction("Python List")
+                    actions["copy_json"] = copy_as.addAction("JSON List")
+                    actions["copy_csv"] = copy_as.addAction("CSV")
+                    actions["copy_p64"] = copy_as.addAction("pwntools p64 Chain")
 
-                toggle_star.setEnabled(clicked_row is not None)
-                copy_address.setEnabled(clicked_row is not None)
-                has_selection = bool(selected_rows)
-                star_selected.setEnabled(has_selection)
-                unstar_selected.setEnabled(has_selection)
-                copy_selected.setEnabled(has_selection)
-                copy_chain.setEnabled(has_selection)
-                copy_formats.setEnabled(has_selection)
-                copy_gadget.setEnabled(has_selection)
-                copy_line.setEnabled(has_selection)
+                if not actions:
+                    return
 
+                reverse_actions = {action: action_name for action_name, action in actions.items()}
                 action = menu.exec(view.viewport().mapToGlobal(position))
-                if action == toggle_star and clicked_row is not None:
-                    self.set_starred_for_rows([clicked_row], clicked_address not in self.starred_addresses())
-                elif action == star_selected:
+                action_name = reverse_actions.get(action)
+                if action_name == "star_clicked" and clicked_row is not None:
+                    self.set_starred_for_rows([clicked_row], True)
+                elif action_name == "unstar_clicked" and clicked_row is not None:
+                    self.set_starred_for_rows([clicked_row], False)
+                elif action_name == "star_selected":
                     self.set_starred_for_rows(selected_rows, True)
-                elif action == unstar_selected:
+                elif action_name == "unstar_selected":
                     self.set_starred_for_rows(selected_rows, False)
-                elif action == copy_address and clicked_row is not None:
+                elif action_name == "copy_clicked_address" and clicked_row is not None:
                     self.copy_addresses_for_rows([clicked_row])
-                elif action == copy_selected:
+                elif action_name == "copy_clicked_hex" and clicked_row is not None:
+                    self.copy_addresses_for_rows([clicked_row], "hex")
+                elif action_name == "copy_clicked_p64" and clicked_row is not None:
+                    self.copy_addresses_for_rows([clicked_row], "chain")
+                elif action_name == "copy_clicked_gadget" and clicked_row is not None:
+                    self.copy_gadgets_for_rows([clicked_row])
+                elif action_name == "copy_clicked_line" and clicked_row is not None:
+                    self.copy_address_and_gadget_for_rows([clicked_row])
+                elif action_name == "copy_selected":
                     self.copy_addresses_for_rows(selected_rows)
-                elif action == copy_chain:
+                elif action_name == "copy_chain":
                     self.copy_selected_as_chain()
-                elif action == copy_display:
+                elif action_name == "copy_display":
                     self.copy_addresses_for_rows(selected_rows)
-                elif action == copy_hex:
+                elif action_name == "copy_hex":
                     self.copy_addresses_for_rows(selected_rows, "hex")
-                elif action == copy_python:
+                elif action_name == "copy_python":
                     self.copy_addresses_for_rows(selected_rows, "python")
-                elif action == copy_json:
+                elif action_name == "copy_json":
                     self.copy_addresses_for_rows(selected_rows, "json")
-                elif action == copy_csv:
+                elif action_name == "copy_csv":
                     self.copy_addresses_for_rows(selected_rows, "csv")
-                elif action == copy_p64:
+                elif action_name == "copy_p64":
                     self.copy_addresses_for_rows(selected_rows, "chain")
-                elif action == copy_gadget:
+                elif action_name == "copy_gadget":
                     self.copy_gadgets_for_rows(selected_rows)
-                elif action == copy_line:
+                elif action_name == "copy_line":
                     self.copy_address_and_gadget_for_rows(selected_rows)
 
             def format_address(self, addr: int) -> str:
