@@ -33,7 +33,7 @@
     "installers": [],
     "other": []
   },
-  "version": "4.0.0",
+  "version": "1.2.6",
   "author": "Alessaba; based on binja_rop by m4ul3r",
   "minimumbinaryninjaversion": 3364
 }
