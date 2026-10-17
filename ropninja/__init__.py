@@ -23,6 +23,7 @@ from .rop import (
     get_max_previous_bytes,
     get_starred_address_color,
     get_strip_address_zeros,
+    matches_gadget_category,
     register_plugin_settings,
 )
 
@@ -51,5 +52,6 @@ __all__ = [
     "get_max_previous_bytes",
     "get_starred_address_color",
     "get_strip_address_zeros",
+    "matches_gadget_category",
     "register_plugin_settings",
 ]

@@ -26,6 +26,7 @@ from .ropninja import (
     get_max_previous_bytes,
     get_starred_address_color,
     get_strip_address_zeros,
+    matches_gadget_category,
     register_plugin_settings,
 )
 
@@ -740,20 +741,8 @@ if core_ui_enabled():
                 return f"{self.format_address(row.address)} 0x{row.address:x} {row.text}"
 
             def matches_category(self, row, category) -> bool:
-                text = row.text.lower()
-                if category == "pop":
-                    return re.search(r"\bpop\b", text) is not None
-                if category == "mov":
-                    return re.search(r"\bmov\b", text) is not None
-                if category == "call":
-                    return re.search(r"\bcall\b", text) is not None
-                if category == "stack":
-                    return re.search(r"\b(leave|pop\s+rsp|xchg\s+rsp|mov\s+rsp|add\s+rsp|sub\s+rsp)\b", text) is not None
-                if category == "branch":
-                    return re.search(r"\bj[a-z]*\b", text) is not None
-                if category == "leave":
-                    return re.search(r"\bleave\b", text) is not None
-                return True
+                data = self.result_data or self.search_data or self.data
+                return matches_gadget_category(data, row.text, category)
 
             def starred_addresses(self) -> set[int]:
                 identity = self.data_identity(self.result_data or self.search_data or self.data)

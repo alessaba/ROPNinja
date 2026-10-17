@@ -12,6 +12,8 @@ from binaryninja import BinaryView
 from binaryninja.enums import InstructionTextTokenType, SectionSemantics
 from binaryninja.settings import Settings
 
+from .arch import ArchProfile, arch_profile_for_view
+
 
 PLUGIN_NAME = "ROPNinja"
 SETTING_MAX_PREVIOUS_BYTES = "ropninja.maxPreviousBytes"
@@ -24,9 +26,6 @@ SETTING_STARRED_ADDRESS_COLOR = "ropninja.starredAddressColor"
 DEFAULT_MAX_PREVIOUS_BYTES = 32
 DEFAULT_STARRED_ADDRESS_COLOR = "#d8b84a"
 
-_RET_INSTRS = {"retn": [b"\xc3", b"\xf2\xc3"], "retf": [b"\xcb"]}
-_RET_MNEMONICS = {"ret", "retn", "retf"}
-
 
 @dataclass
 class GadgetInstruction:
@@ -34,6 +33,10 @@ class GadgetInstruction:
     length: int
     text: str
     fragments: list[tuple[Any, str]]
+
+    @property
+    def mnemonic(self) -> str:
+        return self.text.split(maxsplit=1)[0].lower().rstrip(":")
 
 
 @dataclass
@@ -94,7 +97,7 @@ def register_plugin_settings() -> None:
         json.dumps(
             {
                 "title": "Include Jump Gadgets",
-                "description": "Include gadgets containing jmp or conditional-jump instructions. These can be useful for JOP or special-purpose chains but add noise to ordinary ROP searches.",
+                "description": "Include gadgets that use jumps: jump and conditional-jump instructions inside a gadget, plus gadgets ending in an indirect branch (br, blr) on AArch64. These can be useful for JOP or special-purpose chains but add noise to ordinary ROP searches.",
                 "type": "boolean",
                 "default": False,
             }
@@ -105,7 +108,7 @@ def register_plugin_settings() -> None:
         json.dumps(
             {
                 "title": "Include Leave Gadgets",
-                "description": "Include gadgets containing leave instructions. These are often stack-pivot gadgets but are disabled by default to preserve the plugin's historical filtering behavior.",
+                "description": "Include frame-teardown gadgets (leave on x86, mov sp, x29 on AArch64). These are often stack-pivot gadgets but are disabled by default to preserve the plugin's historical filtering behavior.",
                 "type": "boolean",
                 "default": False,
             }
@@ -259,6 +262,16 @@ def format_gadget_rows_for_display(
     return rows
 
 
+def matches_gadget_category(bv: BinaryView | None, gadget_text: str, category: str) -> bool:
+    """
+    Whether gadget text belongs to a sidebar category on the view's architecture.
+
+    Categories keep the same names on every architecture; each profile decides which
+    instructions match them (stack reads are "pop" gadgets on AArch64, for example).
+    """
+    return arch_profile_for_view(bv).matches_category(gadget_text.lower(), category)
+
+
 class ROPGadgetFinder:
     """
     Locate ROP gadgets in executable BinaryViews.
@@ -273,6 +286,7 @@ class ROPGadgetFinder:
         should_cancel: Callable[[], bool] | None = None,
     ):
         self.bv = bv
+        self.arch: ArchProfile = arch_profile_for_view(bv)
         self.max_previous_bytes = max_previous_bytes or get_max_previous_bytes(bv)
         self.include_branches = get_include_branches(bv) if include_branches is None else include_branches
         self.include_leave = get_include_leave(bv) if include_leave is None else include_leave
@@ -428,12 +442,7 @@ class ROPGadgetFinder:
             if instruction is None:
                 return None
 
-            mnemonic = instruction.text.split(maxsplit=1)[0].lower().rstrip(":")
-            if not self.include_branches and mnemonic.startswith("j"):
-                return None
-            if not self.include_leave and mnemonic == "leave":
-                return None
-            if mnemonic in _RET_MNEMONICS:
+            if self.arch.skips_interior(instruction, self.include_branches, self.include_leave):
                 return None
 
             instructions.append(instruction)
@@ -455,7 +464,7 @@ class ROPGadgetFinder:
             return gadgets
 
         start_addr = max(range_start, ret_addr - self.max_previous_bytes)
-        for gadget_addr in range(start_addr, ret_addr + 1):
+        for gadget_addr in self.arch.gadget_starts(start_addr, ret_addr):
             if self._cancelled():
                 break
 
@@ -475,19 +484,18 @@ class ROPGadgetFinder:
             if self._cancelled():
                 return gadgets
 
-            for bytecodes in _RET_INSTRS.values():
-                for bytecode in bytecodes:
-                    next_start = range_start
-                    while next_start < range_end:
-                        if self._cancelled():
-                            return gadgets
+            for candidate in self.arch.terminator_candidates(
+                self.bv, range_start, range_end, self.include_branches
+            ):
+                if self._cancelled():
+                    return gadgets
 
-                        next_ret_addr = self.bv.find_next_data(next_start, bytecode)
-                        if next_ret_addr is None or next_ret_addr >= range_end:
-                            break
-                        if next_ret_addr + len(bytecode) <= range_end:
-                            ret_addrs[next_ret_addr] = range_start
-                        next_start = next_ret_addr + 1
+                instruction = self._decode_instruction(candidate)
+                if instruction is None or not self.arch.is_terminator(
+                    instruction, self.include_branches
+                ):
+                    continue
+                ret_addrs[candidate] = range_start
 
         for ret_addr, range_start in sorted(ret_addrs.items()):
             if self._cancelled():

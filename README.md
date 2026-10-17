@@ -13,6 +13,7 @@ It started as a transformative fork of [`binja_rop`](https://github.com/m4ul3r/b
 - Text and regex filtering across gadget text and addresses.
 - Horizontally scrollable gadget chains with the address column pinned in place.
 - Multi-row selection with `Ctrl+C` / `Cmd+C` address copying plus right-click copy formats.
+- Architecture-aware search for x86 / x86-64 and AArch64 views.
 - Starred gadgets for marking interesting finds, with a subtle configurable address tint.
 - Per-view gadget caching so reopening or auto-finding with the same search settings is instant.
 - Optional short address display that strips leading zeroes.
@@ -75,6 +76,39 @@ ROPNinja registers clean `ropninja.*` settings:
 
 When auto-find is enabled, ROPNinja hides the manual `Find` button and gives the filter/category controls the extra room.
 
+## Architecture Support
+
+ROPNinja reads the architecture of the current BinaryView and adapts how gadgets are found:
+
+- x86 / x86-64: byte-granular backtracking from `ret` (`c3`), `bnd ret` (`f2 c3`), and `retf` (`cb`).
+- AArch64: backtracking from the return group (`ret xN`, `retaa`, `retab`) at 4-byte instruction alignment. With `ropninja.includeBranches` enabled, indirect branches (`br`, `blr`, and their pointer-authentication variants) end gadgets too, since those are legitimate JOP tails.
+- Other architectures fall back to the x86 rules.
+
+`ropninja.maxPreviousBytes` keeps its byte meaning, so the default of 32 bytes reaches 8 instructions back on AArch64.
+
+Category names stay the same on every architecture; the instructions they match do not:
+
+| Category | AArch64 |
+| --- | --- |
+| POP gadgets | `pop`, `ldp`, `ldr`, and `ldur` from `[sp]` |
+| MOV gadgets | `mov`, `movz`, `movk`, and `movn` |
+| CALL gadgets | `bl`, `blr`, `blraa`, and `blrab` |
+| Stack pivots | instructions that write to `sp` |
+| Branches | `b`, `br`, `cbz`, `tbz`, and friends |
+| Leave | `mov sp, x29`, the AArch64 frame teardown |
+
+`eret` is left alone: it returns through exception state rather than the stack, so it neither ends nor breaks a gadget.
+
+## Tests
+
+The gadget finder is covered by a unit test suite that runs without Binary Ninja: it decodes instructions with capstone behind a small stand-in for the Binary Ninja API, and checks the finder against an independent brute-force enumeration.
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+Requires `pip install capstone`.
+
 ## Why Are Jumps And `leave` Disabled By Default?
 
 Classic ROP hunting usually wants short, predictable chains ending in `ret`. Jump instructions are useful for JOP or special control-flow tricks, and `leave` is valuable for stack pivots, but both can add a lot of noise to everyday ROP searches.
@@ -87,7 +121,7 @@ ROPNinja is actively being shaped into a first-class Binary Ninja ROP workflow. 
 
 - richer gadget classification,
 - better copy/export formats,
-- architecture-aware search improvements,
+- 32-bit ARM / Thumb support alongside the existing x86 and AArch64 search,
 - keyboard-first table navigation,
 - and tighter Binary Ninja UI integration.
 
